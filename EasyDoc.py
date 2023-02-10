@@ -11,7 +11,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from sentence_transformers import SentenceTransformer, util
 
 
-class EasyIR:
+class EasyDoc:
     def __init__(self, file_path, lang='en', page=1, temp_folder='tmp', tmp_prefix='image',
                  poppler_path=r"C:\Users\ccigc\Downloads\poppler-0.68.0\bin"):
 
@@ -169,7 +169,7 @@ class EasyIR:
         cv2.destroyAllWindows()
 
 
-doc = EasyIR(r"C:\Users\ccigc\Downloads\00612270.pdf")
+doc = EasyDoc(r"C:\Users\ccigc\Downloads\00612270.pdf")
 ocr_result = doc.get_ocr_result()
 account_number = doc.find_text('Account Number').iloc[0][:]
 doc.set_region(account_number, 'above', 10)
