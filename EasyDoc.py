@@ -16,7 +16,7 @@ import easyocr
 
 class EasyDoc:
     def __init__(self, file_path, lang='en', page=1, temp_folder='tmp', tmp_prefix='image',
-                 poppler_path=r"C:\Users\ccigc\Downloads\poppler-0.68.0\bin"):
+                 poppler_path="poppler-0.68.0/bin"):
 
         self.df_crop = None
         self.ocr_img_path = None
@@ -152,7 +152,7 @@ class EasyDoc:
         self.extraction = df_region
         return df_region
 
-    def on_the_same_row(self, element=None, text=None, offset=(0, 0, 0, 0), relation=None):
+    def on_the_same_row(self, element=None, text=None, offset=(0, 0), relation=None):
         if text:
             try:
                 element = self.find_text(text).iloc[0][:]
@@ -163,7 +163,7 @@ class EasyDoc:
         bottom_right_x = element.bottom_right_x
         bottom_right_y = element.bottom_right_y
 
-        a, b, c, d = 0, top_left_y - offset[1], self.width, bottom_right_y + offset[4]
+        a, b, c, d = 0, top_left_y - offset[0], self.width, bottom_right_y + offset[1]
 
         if relation == 'left':
             c = top_left_x - offset[2]
@@ -173,7 +173,7 @@ class EasyDoc:
         self.region = (float(max(self.region[0], a)), float(max(self.region[1], b)),
                        float(min(self.region[2], c)), float(min(self.region[3], d)))
 
-    def on_the_same_column(self, element=None, text=None, offset=(0, 0, 0, 0), relation=None):
+    def on_the_same_column(self, element=None, text=None, offset=(0, 0), relation=None):
         if text:
             try:
                 element = self.find_text(text).iloc[0][:]
@@ -184,12 +184,12 @@ class EasyDoc:
         bottom_right_x = element.bottom_right_x
         bottom_right_y = element.bottom_right_y
 
-        a, b, c, d = top_left_x + offset[0], 0, bottom_right_x + offset[2], self.height
+        a, b, c, d = top_left_x + offset[0], 0, bottom_right_x + offset[1], self.height
 
         if relation == 'above':
-            d = top_left_y - offset[1]
+            d = top_left_y - offset[0]
         if relation == 'below':
-            b = bottom_right_y + offset[3]
+            b = bottom_right_y + offset[1]
 
         self.region = (float(max(self.region[0], a)), float(max(self.region[1], b)),
                        float(min(self.region[2], c)), float(min(self.region[3], d)))
@@ -213,7 +213,12 @@ class EasyDoc:
             except:
                 return None
         if engine == 'EasyOCR':
-            reader = easyocr.Reader([self.lang])
+            if self.lang == 'en':
+                reader = easyocr.Reader([self.lang])
+            if self.lang == 'ch':
+                reader = easyocr.Reader(['ch_sim', 'en'])
+            if self.lang == 'cht':
+                reader = easyocr.Reader(['ch_tra', 'en'])
             try:
                 result = reader.readtext(crop_image)
                 df_crop = pd.DataFrame(result, columns=['bboxes', 'words', 'confidence'])
