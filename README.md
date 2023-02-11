@@ -5,9 +5,7 @@ This tool is designed to perform simple information extraction from pdf/images b
 Key features:
 - [Cosine similarity](https://www.sbert.net/docs/pretrained_models.html#semantic-search) to locate the most similar keyword
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) as default OCR engine, [TrOCR model](https://huggingface.co/microsoft/trocr-large-handwritten) for handwriting recognition
-- Method `set_region` to extract by defining relative `relation` to a keyword (above/below/left/right)
-- Method `on_the_same_column` or `on_the_same_row` available for a defined keyword
-- Method `draw_region` to print output image for debugging
+- Extract information by defining `relative position` to a keyword (above/below/left/right)
 
 Road ahead:
 - Paragraph detection
