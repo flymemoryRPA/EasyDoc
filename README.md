@@ -11,6 +11,8 @@ doc.extract_ocr(engine='TrOCR-handwritten')
 doc.draw_region('Name', show_image=True)
 ```
 
+![](doc/output.png)
+
 # Installation
 Prepare env: Python 3.9, PyTorch 1.12.1, CUDA 11.6, Cudnn 8.4
 
