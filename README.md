@@ -1,5 +1,21 @@
 # EasyDoc
 
+This tool is designed to perform simple information extraction from pdf/images based on provided keywords.
+
+Key features:
+- [Cosine similarity](https://www.sbert.net/docs/pretrained_models.html#semantic-search) to locate the most similar keyword
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) as default OCR engine, [TrOCR model](https://huggingface.co/microsoft/trocr-large-handwritten) for handwriting recognition
+- Method `set_region` to extract by defining relative `relation` to a keyword (above/below/left/right)
+- Method `on_the_same_column` or `on_the_same_row` available for a defined keyword
+- Method `draw_region` to print output image for debugging
+
+Road ahead:
+- Paragraph detection
+- Paddle NLP
+- Table detection
+
+
+Example code:
 ```Python
 from EasyDoc import EasyDoc
 doc = EasyDoc(r"Test.pdf")
@@ -32,7 +48,7 @@ pip install "paddleocr>=2.0.1"
 doc = EasyDoc(r"Test.pdf")
 ocr_result = doc.get_ocr_result()
 ```
-| Paremeter    | Default value      |
+| Paremeters   | Default value      |
 |--------------|--------------------|
 | lang         | en, ch, cht        |
 | page         | 1                  |
@@ -53,6 +69,8 @@ doc.set_region(element, relation='above', offset=-30)
 #or directly search by text
 doc.set_region(text='Employer Identification number', relation='above', offset=-30)
 ```
+Fuzziness is calculated using cosine similarity, based on model `multi-qa-mpnet-base-cos-v1`.
+
 | relation | position | default | Note                                          |
 |----------|----------|---------|-----------------------------------------------|
 | above    | whole    | Yes     | Above the entire element                      |

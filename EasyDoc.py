@@ -48,7 +48,7 @@ class EasyDoc:
             print(ocr_img_path)
         else:
             pages = convert_from_path(self.file_path, poppler_path=self.poppler_path)
-            pages[self.page].save(f'{self.temp_folder}\\{self.tmp_prefix}_{self.page}.png', 'PNG')
+            pages[self.page-1].save(f'{self.temp_folder}\\{self.tmp_prefix}_{self.page}.png', 'PNG')
             ocr_img_path = f'{self.temp_folder}\\{self.tmp_prefix}_{self.page}.png'
             print(ocr_img_path)
 
