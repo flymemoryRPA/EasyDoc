@@ -6,15 +6,19 @@ from paddleocr import PaddleOCR
 from pdf2image import convert_from_path
 
 import cv2
+from PIL import Image
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from sentence_transformers import SentenceTransformer, util
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+import easyocr
 
 
 class EasyDoc:
     def __init__(self, file_path, lang='en', page=1, temp_folder='tmp', tmp_prefix='image',
                  poppler_path=r"C:\Users\ccigc\Downloads\poppler-0.68.0\bin"):
 
+        self.df_crop = None
         self.ocr_img_path = None
         self.extraction = None
         self.width = None
@@ -60,10 +64,10 @@ class EasyDoc:
             df['top_left_y'] = df['bboxes'].apply(lambda x: x[0][1])
             df['top_right_x'] = df['bboxes'].apply(lambda x: x[1][0])
             df['top_right_y'] = df['bboxes'].apply(lambda x: x[0][1])
-            df['bottom_left_x'] = df['bboxes'].apply(lambda x: x[2][0])
-            df['bottom_left_y'] = df['bboxes'].apply(lambda x: x[2][1])
-            df['bottom_right_x'] = df['bboxes'].apply(lambda x: x[3][0])
-            df['bottom_right_y'] = df['bboxes'].apply(lambda x: x[3][1])
+            df['bottom_right_x'] = df['bboxes'].apply(lambda x: x[2][0])
+            df['bottom_right_y'] = df['bboxes'].apply(lambda x: x[2][1])
+            df['bottom_left_x'] = df['bboxes'].apply(lambda x: x[3][0])
+            df['bottom_left_y'] = df['bboxes'].apply(lambda x: x[3][1])
             df['confidence'] = df['words'].apply(lambda x: x[1])
             df['words'] = df['words'].apply(lambda x: x[0])
             df = df.drop('bboxes', axis=1)
@@ -108,7 +112,12 @@ class EasyDoc:
 
         return df_fuzzy
 
-    def set_region(self, element, relation='above', offset=20, position='whole'):
+    def set_region(self, element=None, text=None, relation='above', offset=0, position='whole'):
+        if text:
+            try:
+                element = self.find_text(text).iloc[0][:]
+            except:
+                raise('Failed to find text: '+text)
         top_left_x = element.top_left_x
         top_left_y = element.top_left_y
         bottom_right_x = element.bottom_right_x
@@ -143,7 +152,93 @@ class EasyDoc:
         self.extraction = df_region
         return df_region
 
-    def draw_region(self,label=None):
+    def on_the_same_row(self, element=None, text=None, offset=(0, 0, 0, 0), relation=None):
+        if text:
+            try:
+                element = self.find_text(text).iloc[0][:]
+            except:
+                raise('Failed to find text: '+text)
+        top_left_x = element.top_left_x
+        top_left_y = element.top_left_y
+        bottom_right_x = element.bottom_right_x
+        bottom_right_y = element.bottom_right_y
+
+        a, b, c, d = 0, top_left_y - offset[1], self.width, bottom_right_y + offset[4]
+
+        if relation == 'left':
+            c = top_left_x - offset[2]
+        if relation == 'right':
+            a = bottom_right_x + offset[0]
+
+        self.region = (float(max(self.region[0], a)), float(max(self.region[1], b)),
+                       float(min(self.region[2], c)), float(min(self.region[3], d)))
+
+    def on_the_same_column(self, element=None, text=None, offset=(0, 0, 0, 0), relation=None):
+        if text:
+            try:
+                element = self.find_text(text).iloc[0][:]
+            except:
+                raise ('Failed to find text: '+text)
+        top_left_x = element.top_left_x
+        top_left_y = element.top_left_y
+        bottom_right_x = element.bottom_right_x
+        bottom_right_y = element.bottom_right_y
+
+        a, b, c, d = top_left_x + offset[0], 0, bottom_right_x + offset[2], self.height
+
+        if relation == 'above':
+            d = top_left_y - offset[1]
+        if relation == 'below':
+            b = bottom_right_y + offset[3]
+
+        self.region = (float(max(self.region[0], a)), float(max(self.region[1], b)),
+                       float(min(self.region[2], c)), float(min(self.region[3], d)))
+
+    def extract_ocr(self, engine='PaddleOCR'):
+        im = cv2.imread(self.ocr_img_path)
+        region = im[int(self.region[1]):int(self.region[3]), int(self.region[0]):int(self.region[2])]
+        crop_image = os.path.abspath(f'{self.temp_folder}\\target_region.png')
+        print(crop_image)
+        cv2.imwrite(crop_image, region)
+        if engine == 'PaddleOCR':
+            try:
+                result = self.ocr.ocr(crop_image)
+                df_crop = pd.DataFrame(result[0], columns=['bboxes', 'words'])
+                df_crop['confidence'] = df_crop['words'].apply(lambda x: x[1])
+                df_crop['words'] = df_crop['words'].apply(lambda x: x[0])
+                df_crop = df_crop.drop('bboxes', axis=1)
+                self.df_crop = df_crop
+                print(df_crop)
+                return df_crop
+            except:
+                return None
+        if engine == 'EasyOCR':
+            reader = easyocr.Reader([self.lang])
+            try:
+                result = reader.readtext(crop_image)
+                df_crop = pd.DataFrame(result, columns=['bboxes', 'words', 'confidence'])
+                df_crop = df_crop.drop('bboxes', axis=1)
+                self.df_crop = df_crop
+                print(df_crop)
+                return df_crop
+            except:
+                return None
+        if engine == 'TrOCR-handwritten':
+            try:
+                image = Image.open(crop_image).convert("RGB")
+                processor = TrOCRProcessor.from_pretrained('microsoft/trocr-large-handwritten')
+                model = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-large-handwritten')
+                pixel_values = processor(images=image, return_tensors="pt").pixel_values
+                generated_ids = model.generate(pixel_values)
+                generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                df_crop = pd.DataFrame({'words': generated_text, 'confidence': None}, index=[0])
+                self.df_crop = df_crop
+                print(df_crop)
+                return df_crop
+            except:
+                return None
+
+    def draw_region(self,label=None,show_image=False):
         start_point = (int(self.region[0]), int(self.region[1]))
         end_point = (int(self.region[2]), int(self.region[3]))
         color = (255, 0, 0)
@@ -152,29 +247,32 @@ class EasyDoc:
         image = cv2.rectangle(im, start_point, end_point, color, thickness)
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        bottomLeftCornerOfText = (int(self.region[2])+5, int(self.region[3])+5)
+        bottomLeftCornerOfText = (int(self.region[2]) + 5, int(self.region[3]) - 10)
         fontScale = 1
         fontColor = color
         thickness = 3
         lineType = 2
-        if label:
-            text = label + ": " + self.extraction.iloc[0][:].words
-        else:
-            text = self.extraction.iloc[0][:].words
+        try:
+            if label:
+                text = label + ": " + self.df_crop.iloc[0][:].words
+            else:
+                text = self.df_crop.iloc[0][:].words
+        except:
+            text = 'not found'
 
         cv2.putText(image, text, bottomLeftCornerOfText, font, fontScale, fontColor, thickness, lineType)
+        cv2.imwrite(f'{self.temp_folder}\\output.png', image)
+        print(os.path.abspath(f'{self.temp_folder}\\output.png'))
+        if show_image:
+            dim = None
+            (h, w) = image.shape[:2]
 
-        cv2.imshow('Image', image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+            width = 1500
+            r = width / float(w)
+            dim = (width, int(h * r))
+            resized_image = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
 
+            cv2.imshow('Image', resized_image)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
-doc = EasyDoc(r"C:\Users\ccigc\Downloads\00612270.pdf")
-ocr_result = doc.get_ocr_result()
-account_number = doc.find_text('Account Number').iloc[0][:]
-doc.set_region(account_number, 'above', 10)
-doc.set_region(account_number, 'below', -50, 'top')
-doc.set_region(account_number, 'right', -10, 'left')
-doc.set_region(account_number, 'left', -500, 'right')
-print(doc.extraction)
-doc.draw_region('Account Number')
