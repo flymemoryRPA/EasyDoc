@@ -120,7 +120,7 @@ doc.draw_region(label='Name', show_image=True)
 
 ## Troubleshoot
 
-###partially initialized module 'cv2' has no attribute 'gapi_wip_gst_GStreamerPipeline'
+### partially initialized module 'cv2' has no attribute 'gapi_wip_gst_GStreamerPipeline'
 ```commandline
 pip uninstall opencv-python opencv-python-headless
 pip install "paddleocr>=2.0.1"
