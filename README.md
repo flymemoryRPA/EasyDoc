@@ -6,12 +6,11 @@ Key features:
 - [Cosine similarity](https://www.sbert.net/docs/pretrained_models.html#semantic-search) to locate the most similar keyword
 - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) as default OCR engine, [TrOCR model](https://huggingface.co/microsoft/trocr-large-handwritten) for handwriting recognition
 - Extract information by defining `relative position` to a keyword (above/below/left/right)
+- Cross-line paragraph detection
+- NER analysis by spacy
 
 Road ahead:
-- Paragraph detection
-- Paddle NLP
 - Table detection
-
 
 Example code:
 ```Python
