@@ -179,7 +179,7 @@ Returns NER analysis by spacy transformer model
 |------------------|-------|-------|-----|
 | 01 November 2022 | Date  | 85    | 101 |
 
-## NER
+## get_entity_by_label
 ```Python
 text = doc.find_text('at the close of')
 paragraph = doc.get_nearby_paragraph(element=text)
