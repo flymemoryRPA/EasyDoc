@@ -93,7 +93,7 @@ class EasyDoc:
         except Exception as e:
             raise ('Failed to extract text from path: ' + ocr_img_path + ', err msg: ' + str(e))
 
-    def find_text(self, keyword, fuzzy=0.65, position='top', first_only=True):
+    def find_text(self, keyword, fuzzy=0.65, position=None, nth=1, sort_by='fuzzy_matching_lower_trim'):
         df = self.ocr_result
         df['text_contains'] = df.apply(lambda x: keyword.lower() in x['words'].lower(), axis=1)
         keyword_embedding = self.model.encode(keyword)
@@ -109,23 +109,28 @@ class EasyDoc:
         df_fuzzy = df[
             df['text_contains'] | df['fuzzy_matching_lower'].ge(float(fuzzy)) | df['fuzzy_matching_lower_trim'].ge(
                 float(fuzzy))]
+        if position is None:
+            df_fuzzy.sort_values(by=[sort_by], inplace=True, ascending=[False])
         if position == 'top':
-            df_fuzzy.sort_values(by=['fuzzy_matching_lower_trim', 'top_left_y'], inplace=True, ascending=[False, True])
+            df_fuzzy.sort_values(by=['top_left_y', sort_by], inplace=True, ascending=[True, False])
         if position == 'bottom':
-            df_fuzzy.sort_values(by=['fuzzy_matching_lower_trim', 'top_left_y'], inplace=True, ascending=[False, False])
+            df_fuzzy.sort_values(by=['top_left_y', sort_by], inplace=True, ascending=[False, False])
         if position == 'left':
-            df_fuzzy.sort_values(by=['fuzzy_matching_lower_trim', 'top_left_x'], inplace=True, ascending=[False, True])
+            df_fuzzy.sort_values(by=['top_left_x', sort_by], inplace=True, ascending=[True, False])
         if position == 'right':
-            df_fuzzy.sort_values(by=['fuzzy_matching_lower_trim', 'top_left_x'], inplace=True, ascending=[False, False])
+            df_fuzzy.sort_values(by=['top_left_x', sort_by], inplace=True, ascending=[False, False])
 
         print(df_fuzzy)
-        if first_only:
-            return df_fuzzy.iloc[0][:]
+        if nth >= 1:
+            return df_fuzzy.iloc[nth - 1][:]
         else:
             return df_fuzzy
 
     def set_region(self, element=None, text=None, relation='above', offset=0, position='whole'):
-        if text:
+        if type(element) == str:
+            text = element
+            element = None
+        if text and element is None:
             try:
                 element = self.find_text(keyword=text)
             except:
@@ -161,7 +166,7 @@ class EasyDoc:
 
         df = self.ocr_result
         df_region = df[df.apply(lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
-                    x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]), axis=1)]
+                x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]), axis=1)]
         self.extraction = df_region
         return df_region
 
@@ -207,67 +212,78 @@ class EasyDoc:
         self.region = (float(max(self.region[0], a)), float(max(self.region[1], b)),
                        float(min(self.region[2], c)), float(min(self.region[3], d)))
 
-    def get_nearyby_paragraph(self, element, w, h, separator):
+    def itter_nearyby_paragraph(self, element, w, h, separator):
         top_left_x = element.top_left_x
         top_left_y = element.top_left_y
         bottom_right_x = element.bottom_right_x
         bottom_right_y = element.bottom_right_y
         df = self.ocr_result
         df_below = df[
-            df.apply(lambda x: (abs(x.top_left_x - top_left_x) <= w) & (x.top_left_y >= bottom_right_y) & ((x.top_left_y - bottom_right_y) <= h) & (x.top_left_y < self.region[3]) & (x.words != element.words), axis=1)]
+            df.apply(lambda x: (abs(x.top_left_x - top_left_x) <= w) & (x.top_left_y >= bottom_right_y) & (
+                        (x.top_left_y - bottom_right_y) <= h) & (x.top_left_y < self.region[3]) & (
+                                           x.words != element.words), axis=1)]
         if len(df_below) > 0 and self.df_nearby_below:
             df_below = df_below.iloc[0][:]
             if abs(df_below.bottom_right_x - self.df_nearby.bottom_right_x) > w:
                 self.df_nearby_below = False
             self.df_nearby.bottom_right_y = df_below.bottom_right_y
             self.df_nearby.words = self.df_nearby.words + separator + df_below.words
-            return self.get_nearyby_paragraph(element=self.df_nearby, w=w, h=h, separator=separator)
+            return self.itter_nearyby_paragraph(element=self.df_nearby, w=w, h=h, separator=separator)
 
         df_above = df[
             df.apply(lambda x: (abs(x.top_left_x - top_left_x) <= w) & (x.bottom_right_y <= top_left_y) & (
-                        (top_left_y - x.bottom_right_y) <= h) & (x.bottom_right_y > self.region[1]) & (x.words != element.words), axis=1)]
+                    (top_left_y - x.bottom_right_y) <= h) & (x.bottom_right_y > self.region[1]) & (
+                                           x.words != element.words), axis=1)]
         if len(df_above) > 0 and self.df_nearby_above:
             df_above = df_above.iloc[-1][:]
             if abs(df_above.bottom_right_x - self.df_nearby.bottom_right_x) <= w:
                 self.df_nearby.top_left_y = df_above.top_left_y
                 self.df_nearby.top_left_x = (self.df_nearby.top_left_x + df_above.top_left_x) / 2
                 self.df_nearby.words = df_above.words + separator + self.df_nearby.words
-                return self.get_nearyby_paragraph(element=self.df_nearby, w=w, h=h, separator=separator)
+                return self.itter_nearyby_paragraph(element=self.df_nearby, w=w, h=h, separator=separator)
             else:
                 self.df_nearby_above = False
         if self.df_nearby_below == False and self.df_nearby_above == False:
             print('Paragraph: ', self.df_nearby.words)
             return self.df_nearby[0][:]
 
-    def get_paragraph(self, element=None, w=100, h=100, separator=' '):
+    def get_nearby_paragraph(self, element=None, w=100, h=100, separator=' '):
         self.df_nearby_below = True
         self.df_nearby_above = True
         if element is None:
             element = self.get_df_from_region().iloc[0][:]
         self.df_nearby = element
-        #print(element.words)
-        self.get_nearyby_paragraph(element, w=w, h=h, separator=separator)
+        # print(element.words)
+        self.itter_nearyby_paragraph(element, w=w, h=h, separator=separator)
         return self.df_nearby.words
 
     def get_df_from_region(self):
         df = self.ocr_result
-        df_region = df[df.apply(lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]), axis=1)]
+        df_region = df[df.apply(lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
+                    x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]), axis=1)]
         if len(df) > 0:
             return df_region
         else:
             raise ('Cannot get OCR text within region: ', self.region)
 
-    def get_text_from_region(self):
-        df = self.ocr_result
-        df_region = df[df.apply(lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
-                    x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]), axis=1)]
-        if len(df_region) > 0:
-            return ' '.join(df_region.words)
-        else:
-            print(self.region)
+    def get_text_from_region(self, engine='PaddleOCR', separator=' '):
+        try:
+            if engine == 'PaddleOCR':
+                df = self.ocr_result
+                df_region = df[
+                    df.apply(lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
+                                x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]),
+                             axis=1)]
+            else:
+                df_region = self.extract_ocr(engine=engine)
+            if len(df_region) > 0:
+                return separator.join(df_region.words)
+            else:
+                raise Exception('Cannot get OCR text within region')
+        except:
             raise Exception('Cannot get OCR text within region')
 
-    def nlp(self, text=None, element=None):
+    def NER(self, text=None, element=None):
         nlp = None
         if self.lang == 'en':
             nlp = spacy.load('en_core_web_trf')
@@ -285,17 +301,10 @@ class EasyDoc:
                  'Label': i.label_}, ignore_index=True)
         return nlp_analysis
 
-    def get_entity(self, text=None, element=None, label='DATE'):
-        nlp_analysis = self.nlp(text=text, element=element)
-        df_entity = nlp_analysis[nlp_analysis.apply(lambda x: x['Label'] == label, axis=1)]
+    def get_entity_by_label(self, text=None, element=None, labels=['DATE']):
+        NER_analysis = self.NER(text=text, element=element)
+        df_entity = NER_analysis[NER_analysis.apply(lambda x: x['Label'] in labels, axis=1)]
         return df_entity
-
-    '''
-    def find_paragraphs(self,min_words=10):
-        df = self.ocr_result
-        for index,item in df.iterrows():
-            df_nearby = 
-    '''
 
     def extract_ocr(self, engine='PaddleOCR'):
         im = cv2.imread(self.ocr_img_path)

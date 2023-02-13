@@ -56,9 +56,16 @@ ocr_result = doc.get_ocr_result()
 
 ## find_text
 ```Python
-element = doc.find_text(keyword='Name',fuzzy=0.65, position='top').iloc[0][:]
+element = doc.find_text(keyword='Name').iloc[0][:]
 ```
-position: ['top','bottom','above','below']
+
+| Paremeters | Values                                                         | Default                     |
+|------------|----------------------------------------------------------------|-----------------------------|
+| fuzzy      | 0-1                                                            | 0.65                        |
+| position   | None, top, bottom, left, right                                 | None                        |
+| nth        | 0: return all; >=1, return nth                                 | 1                           | 
+| sort_by    | fuzzy_matching_lower_trim, fuzzy_matching_lower, text_contains | fuzzy_matching_lower_trim   |
+
 
 ## set_region
 ```Python
@@ -136,14 +143,62 @@ Draw the region for debug purpose:
 doc.draw_region(label='Name', show_image=True)
 ```
 
-## Troubleshoot
+## get_nearby_paragraph
+Based on given region, find the nearby paragraph.
+```Python
+text = doc.find_text('at the close of')
+paragraph = doc.get_nearby_paragraph(text)
+```
+If line 1 is short, line 2 is long, it's not considered as same paragraph if the extra length is larger than w.
 
-### partially initialized module 'cv2' has no attribute 'gapi_wip_gst_GStreamerPipeline'
+| Paremeters  | Default value | Note                                         |
+|-------------|---------------|----------------------------------------------|
+| w           | 100           | empty space at the beginning/end of the line |
+| h           | 100           | row height                                   | 
+| separator   | ' '           |                                              |
+
+## get_text_from_region
+Return the texts in the given region
+```Python
+text = doc.get_text_from_region()
+```
+| Paremeters | Values                                |
+|------------|---------------------------------------|
+| engine     | PaddleOCR, EasyOCR, TrOCR-handwritten |
+| separator  | ' '                                   |
+
+## NER
+```Python
+text = doc.find_text('at the close of')
+paragraph = doc.get_nearby_paragraph(element=text)
+NER_analysis= doc.NER(text=paragraph)
+print(nlp_analysis)
+```
+Returns NER analysis by spacy transformer model
+
+| Text             | Label | Start | End |
+|------------------|-------|-------|-----|
+| 01 November 2022 | Date  | 85    | 101 |
+
+## NER
+```Python
+text = doc.find_text('at the close of')
+paragraph = doc.get_nearby_paragraph(element=text)
+NAV_date = doc.get_entity_by_label(paragraph, labels=['DATE'])
+print(NAV_date)
+```
+Available labels: CARDINAL, DATE, EVENT, FAC, GPE, LANGUAGE, LAW, LOC, MONEY, NORP, ORDINAL, ORG, PERCENT, PERSON, PRODUCT, QUANTITY, TIME, WORK_OF_ART
+
+
+
+# Troubleshoot
+
+#### partially initialized module 'cv2' has no attribute 'gapi_wip_gst_GStreamerPipeline'
 ```commandline
 pip uninstall opencv-python opencv-python-headless
 pip install "paddleocr>=2.0.1"
 ```
 
-### Could not load library cudnn_cnn_infer64_8.dll. Error code 193
+#### Could not load library cudnn_cnn_infer64_8.dll. Error code 193
 - Locate `zlib.dll` from `C:\Program Files\NVIDIA Corporation`
 - Copy the `zlibe.dll` to the correspondent CUDA folder: `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.6\bin`, and rename it as `zlibwapi.dll`
