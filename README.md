@@ -3,67 +3,91 @@
 This tool is designed to perform simple information extraction from pdf/images based on provided keywords.
 
 Key features:
+- [PDFPlumber](https://github.com/jsvine/pdfplumber) for digital documents 
+- OCR for scanned documents
+  - [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) as default OCR engine
+  - [Easy OCR](https://github.com/JaidedAI/EasyOCR) for multilingual support
+  - [TrOCR model](https://huggingface.co/microsoft/trocr-large-handwritten) for handwriting recognition
 - [Cosine similarity](https://www.sbert.net/docs/pretrained_models.html#semantic-search) to locate the most similar keyword
-- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) as default OCR engine, [TrOCR model](https://huggingface.co/microsoft/trocr-large-handwritten) for handwriting recognition
-- Extract information by defining `relative position` to a keyword (above/below/left/right)
-- Cross-line paragraph detection
-- NER analysis by spacy
+  - Fuzziness is 65% by default, and adjustable
+- Locate information by defining a `relative position` to the given element
+  - above, below, left, right
+  - on the same row, on the same column
+- Perform NER analysis for given texts ([spacy](https://spacy.io/))
+- Merge long sentences on the same line into 1 bbox
 
 Road ahead:
 - Table detection
+- Table structure analysis
 
 Example code:
 ```Python
 from EasyDoc import EasyDoc
 doc = EasyDoc(r"Test.pdf")
 
-ocr_result = doc.get_ocr_result()
+ocr_result = doc.extract_words()
 doc.on_the_same_column(text='Name (as shown', relation='below')
 doc.set_region(text='Business name', relation='above')
-doc.extract_ocr(engine='TrOCR-handwritten')
+Name = doc.extract_text(engine='TrOCR-handwritten') #Bruce Wayne
 doc.draw_region('Name', show_image=True)
 ```
-
 ![](doc/output.png)
+
+Example code:
+```Python
+from EasyDoc import EasyDoc
+doc = EasyDoc(r"doc/Test.pdf")
+ocr_result = doc.extract_words(apply_ocr=False)
+doc.on_the_same_row(text='Cum Income')
+doc.on_the_same_column(text='Pence')
+NAV = doc.extract_text() #30.65
+```
+
+![](doc/output2.png)
+
+
 
 # Installation
 Prepare env: Python 3.9, PyTorch 1.12.1, CUDA 11.6, Cudnn 8.4
 
 ```commandline
-pip install pandas sentence-transformers pdf2image easyocr
+pip install pandas sentence-transformers pypdfium2 easyocr pdfplumber Pillow 'spacy[cuda-autodetect]'
 
 pip install paddlepaddle-gpu==2.4.1.post116 -f https://www.paddlepaddle.org.cn/whl/windows/mkl/avx/stable.html
 
 pip uninstall opencv-python opencv-python-headless
 
 pip install "paddleocr>=2.0.1"
+
+python -m spacy download en_core_web_trf
 ```
 
 # Usage
 ## Initialization
 ```Python
 doc = EasyDoc(r"Test.pdf")
-ocr_result = doc.get_ocr_result()
+ocr_result = doc.extract_words()
 ```
-| Paremeters   | Default value      |
-|--------------|--------------------|
-| lang         | en, ch, cht        |
-| page         | 1                  |
-| temp_folder  | tmp                |
-| tmp_prefix   | image              |
-| poppler_path | poppler-0.68.0\bin |
+| Paremeters   | Default value |
+|--------------|---------------|
+| apply_OCR    | True          |
+| lang         | en, ch, cht   |
+| page         | 1             |
+| temp_folder  | tmp           |
+| tmp_prefix   | image         |
 
 ## find_text
 ```Python
 element = doc.find_text(keyword='Name').iloc[0][:]
 ```
 
-| Paremeters | Values                                                         | Default                     |
-|------------|----------------------------------------------------------------|-----------------------------|
-| fuzzy      | 0-1                                                            | 0.65                        |
-| position   | None, top, bottom, left, right                                 | None                        |
-| nth        | 0: return all; >=1, return nth                                 | 1                           | 
-| sort_by    | fuzzy_matching_lower_trim, fuzzy_matching_lower, text_contains | fuzzy_matching_lower_trim   |
+| Paremeters | Values                          | Default                   |
+|------------|---------------------------------|---------------------------|
+| keyword    |                                 |                           |
+| fuzzy      | 0-1                             | 0.65                      |
+| position   | None, top, bottom, left, right  | None                      |
+| nth        | 0: return all; >=1, return nth  | 1                         | 
+| sort_by    | any columns in self.ocr_result  | fuzzy_matching_lower_trim |
 
 
 ## set_region
@@ -130,47 +154,51 @@ Optional:
 
 ![](doc/on_the_same_column_relation.png)
 
-## extract_ocr
+## extract_words
 Available OCR engines:
 - PaddleOCR
 - EasyOCR
 - TrOCR-handwritten (English only)
 
+## analyze_layout
+Layout analysis for merging long sentences on the same line into 1 bbox
+
+```Python
+doc.analyze_layout(w=2, h=1.0)
+```
+
+| w   | text indent      | 2   (2 characters) |
+|-----|------------------|--------------------|
+| h   | vertical merging | 1.0 (no merging)   |
+
+
 ## draw_region
-Draw the region for debug purpose:
+Draw the region for debug purpose, image is saved to tmp/output.png:
 ```Python
 doc.draw_region(label='Name', show_image=True)
 ```
 
-## get_nearby_paragraph
-Based on given region, find the nearby paragraph.
+## draw_bboxes
+Draw the bboxes for debug purpose, image is saved to tmp/output.png:
 ```Python
-text = doc.find_text('at the close of')
-paragraph = doc.get_nearby_paragraph(text)
+doc.draw_region(show_image=True)
 ```
-If line 1 is short, line 2 is long, it's not considered as same paragraph if the extra length is larger than w.
-
-| Paremeters  | Default value | Note                                         |
-|-------------|---------------|----------------------------------------------|
-| w           | 100           | empty space at the beginning/end of the line |
-| h           | 100           | row height                                   | 
-| separator   | ' '           |                                              |
 
 ## get_text_from_region
 Return the texts in the given region
 ```Python
-text = doc.get_text_from_region()
+text = doc.extract_text()
 ```
 | Paremeters | Values                                |
 |------------|---------------------------------------|
+| apply_OCR  | True                                  |
 | engine     | PaddleOCR, EasyOCR, TrOCR-handwritten |
 | separator  | ' '                                   |
+| offset     | 5                                     |
 
 ## NER
 ```Python
-text = doc.find_text('at the close of')
-paragraph = doc.get_nearby_paragraph(element=text)
-NER_analysis= doc.NER(text=paragraph)
+NER_analysis= doc.NER(text='')
 print(nlp_analysis)
 ```
 Returns NER analysis by spacy transformer model
@@ -181,14 +209,10 @@ Returns NER analysis by spacy transformer model
 
 ## get_entity_by_label
 ```Python
-text = doc.find_text('at the close of')
-paragraph = doc.get_nearby_paragraph(element=text)
-NAV_date = doc.get_entity_by_label(paragraph, labels=['DATE'])
+NAV_date = doc.get_entity_by_label(text='', labels=['DATE'])
 print(NAV_date)
 ```
 Available labels: CARDINAL, DATE, EVENT, FAC, GPE, LANGUAGE, LAW, LOC, MONEY, NORP, ORDINAL, ORG, PERCENT, PERSON, PRODUCT, QUANTITY, TIME, WORK_OF_ART
-
-
 
 # Troubleshoot
 
