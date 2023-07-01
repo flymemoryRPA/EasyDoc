@@ -12,6 +12,8 @@ import cv2
 from PIL import Image
 
 import pdfplumber
+import fitz
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from sentence_transformers import SentenceTransformer, util
@@ -79,11 +81,11 @@ class EasyDoc:
                 else:
                     pdf = pdfium.PdfDocument(self.file_path)
                     page = pdf.get_page(self.page-1)
-                    pil_image = page.render_topil(
+                    pil_image = page.render(
                         scale=1,  # 72dpi resolution
                         rotation=0,  # no additional rotation
                         # ... further rendering options
-                    )
+                    ).to_pil()
 
                     ocr_img_path = f'{self.temp_folder}/{self.tmp_prefix}_{self.page}.png'
                     pil_image.save(ocr_img_path)
@@ -98,10 +100,14 @@ class EasyDoc:
                 self.ocr_img_path = ocr_img_path
 
         if crop_region:
+            print(self.ocr_img_path)
             im = cv2.imread(self.ocr_img_path)
+            #print(self.region)
+            #print(im)
             region = im[int(self.region[1]):int(self.region[3]), int(self.region[0]):int(self.region[2])]
+
             crop_image = os.path.abspath(f'{self.temp_folder}\\target_region.png')
-            print(crop_image)
+
             cv2.imwrite(crop_image, region)
 
         if engine == 'PaddleOCR' and apply_ocr:
@@ -178,41 +184,47 @@ class EasyDoc:
                 ocr_img_path = f'{self.temp_folder}/{self.tmp_prefix}_{self.page}.png'
                 pdf = pdfium.PdfDocument(self.file_path)
                 page = pdf.get_page(self.page - 1)
-                pil_image = page.render_topil(
+                pil_image = page.render(
                     scale=1,  # 72dpi resolution
                     rotation=0,  # no additional rotation
                     # ... further rendering options
-                )
+                ).to_pil()
                 pil_image.save(ocr_img_path)
                 self.ocr_img_path = ocr_img_path
 
-            with pdfplumber.open(pdf_path) as pdf:
-                page = pdf.pages[self.page - 1]
+            doc = fitz.open(pdf_path)
+            words = doc[self.page-1].get_text("words")
+            media_box = doc[self.page-1].mediabox  # 获取页面的 MediaBox 属性
+            iw = media_box.x1 - media_box.x0  # 计算页面宽度
+            ih = media_box.y1 - media_box.y0  # 计算页面长度
+            self.width,self.height = iw,ih
+            extracted_words = []
+            for word in words:
+                extracted_words.append({
+                    'words': word[4],  # 单词文本
+                    'top_left_x': word[0],  # 左上角x坐标
+                    'top_left_y': word[1],  # 左上角y坐标
+                    'bottom_right_x': word[2],  # 右下角x坐标
+                    'bottom_right_y': word[3]  # 右下角y坐标
+                })
 
-                result = page.extract_words()
-                df = pd.DataFrame(result,
-                                  columns=['text', 'x0', 'x1', 'top', 'doctop', 'bottom', 'upright', 'direction'])
-                df['words'] = df['text']
-                df = df.drop('text', axis=1)
+            #print(extracted_words)
 
-                im = cv2.imread(ocr_img_path)
-                im_h, im_w, im_c = im.shape
-                self.width, self.height = im_w, im_h
-                iw, ih = page.width, page.height
-                scale_w, scale_y = im_w / iw, im_h / ih
+            df = pd.DataFrame(extracted_words,
+                              columns=['words', 'top_left_x', 'top_left_y', 'bottom_right_x', 'bottom_right_y'])
 
-                df['top_left_x'] = df['x0'] * scale_w
-                df['top_left_y'] = df['top'] * scale_y
-                df['bottom_right_x'] = df['x1'] * scale_w
-                df['bottom_right_y'] = df['bottom'] * scale_y
-                df['confidence'] = 1.0
-                df = df.drop(['x0', 'x1', 'top', 'doctop', 'bottom', 'upright', 'direction'], axis=1)
-                if crop_region:
-                    df = df[df.apply(
-                        lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
-                                x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]),
-                        axis=1)]
+            #print(df)
 
+            df['confidence'] = 1.0
+
+            if crop_region:
+                print(self.region)
+                df = df[df.apply(
+                    lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
+                            x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]),
+                    axis=1)]
+
+        original_ocr_result = self.ocr_result
         self.ocr_result = df
 
         if embedding:
@@ -220,7 +232,8 @@ class EasyDoc:
 
         if crop_region:
             self.df_crop = df
-            print(df)
+            self.ocr_result = original_ocr_result
+            #print(df)
         else:
             # df[['top_left_x', 'top_left_y', 'bottom_right_x', 'bottom_right_y']] = df[['top_left_x', 'top_left_y', 'bottom_right_x', 'bottom_right_y']].astype(int)
 
@@ -244,7 +257,7 @@ class EasyDoc:
                       columns=['words', 'confidence'])
         else:
             df.to_csv(f'{self.temp_folder}\\{self.tmp_prefix}_{self.page}.csv',
-                      columns=['words', 'top_left_x', 'top_left_y', 'bottom_right_x', 'bottom_right_y', 'confidence','w','h','lines','space'])
+                      columns=['words', 'top_left_x', 'top_left_y', 'bottom_right_x', 'bottom_right_y', 'confidence'])
             df.to_csv(f'{self.temp_folder}\\{self.tmp_prefix}_{self.page}_full.csv')
 
         return df
@@ -260,8 +273,13 @@ class EasyDoc:
         self.ocr_result = df
         return df
 
-    def find_text(self, keyword, fuzzy=0.65, position=None, nth=1, sort_by='fuzzy_matching_lower_trim'):
+    def find_text(self, keyword, fuzzy=0.65, position=None, nth=1, sort_by='fuzzy_matching_lower_trim', crop_region=False):
         df = self.ocr_result
+        if crop_region:
+            df = df[df.apply(
+                lambda x: (x['top_left_x'] >= self.region[0]) & (x['top_left_y'] >= self.region[1]) & (
+                        x['bottom_right_x'] <= self.region[2]) & (x['bottom_right_y'] <= self.region[3]),
+                axis=1)]
         df['text_contains'] = df.apply(lambda x: keyword.lower() in x['words'].lower(), axis=1)
         keyword_embedding = self.model.encode(keyword)
         keyword_embedding_lower_trim = self.model.encode(keyword.replace(' ', '').lower())
@@ -284,10 +302,11 @@ class EasyDoc:
         if position == 'right':
             df_fuzzy.sort_values(by=['top_left_x', sort_by], inplace=True, ascending=[False, False])
 
-        print(df_fuzzy)
+        #print(df_fuzzy)
         if nth >= 1:
             return df_fuzzy.iloc[nth - 1][:]
         else:
+            self.reset_region()
             return df_fuzzy
 
     def set_region(self, element=None, text=None, relation='above', offset=0.0, position='whole'):
@@ -338,9 +357,10 @@ class EasyDoc:
     def on_the_same_row(self, element=None, text=None, offset=(0, 0), relation=None, relation_offset=0.0):
         if text:
             try:
-                element = self.find_text(text)
+                element = self.find_text(text, crop_region=True)
             except:
                 raise ('Failed to find text: ' + text)
+        #print(element)
         top_left_x = element.top_left_x
         top_left_y = element.top_left_y
         bottom_right_x = element.bottom_right_x
@@ -353,13 +373,14 @@ class EasyDoc:
         if relation == 'right':
             a = bottom_right_x + relation_offset
 
+        #self.reset_region()
         self.region = (float(max(self.region[0], a)), float(max(self.region[1], b)),
                        float(min(self.region[2], c)), float(min(self.region[3], d)))
 
     def on_the_same_column(self, element=None, text=None, offset=(0, 0), relation=None, relation_offset=0):
         if text:
             try:
-                element = self.find_text(text)
+                element = self.find_text(text,crop_region=True)
             except:
                 raise ('Failed to find text: ' + text)
         top_left_x = element.top_left_x
@@ -541,7 +562,7 @@ class EasyDoc:
             space = self.ocr_result.at[element.name, 'space']
         else:
             space = 0
-        print(direction + ' ' + action + ":" + str(element.name) + ' with '+ str(element_df.name))
+        #print(direction + ' ' + action + ":" + str(element.name) + ' with '+ str(element_df.name))
 
         self.ocr_result.drop(element_df.name, inplace=True)
         self.ocr_result.at[element.name, 'bottom_right_x'] = bottom_right_x
@@ -555,7 +576,7 @@ class EasyDoc:
             else:
                 self.ocr_result.at[element.name, 'space'] = (space + element_df.top_left_y - element.bottom_right_y)/2
         self.ocr_result.at[element.name, 'words'] = words
-        print(self.ocr_result.loc[element.name].words)
+        #print(self.ocr_result.loc[element.name].words)
         self.ocr_result.to_csv(f'{self.temp_folder}\\{self.tmp_prefix}_{self.page}_{direction}_{action}.csv',
                                columns=['words', 'top_left_x', 'top_left_y', 'bottom_right_x',
                                         'bottom_right_y',
@@ -564,9 +585,17 @@ class EasyDoc:
 
     def get_average_line_space(self):
         df = self.ocr_result.sort_values(by=['top_left_y'], ascending=[True])
+
+        #print(df)
+
         first_df = df.iloc[0][:]
+
+        #print(first_df)
+
         start_y = first_df.bottom_right_y
         space = []
+        #print(start_y,self.height)
+
         while start_y + 1 < self.height:
             second_df = df[df.apply(lambda x:x['top_left_y'] > start_y, axis=1)].sort_values(by=['top_left_y'], ascending=[True])
             if len(second_df) > 0:
@@ -597,7 +626,7 @@ class EasyDoc:
             else:
                 i = i + 1
                 continue
-            print(i)
+            #print(i)
             top_left_x = element.top_left_x
             top_left_y = element.top_left_y
             bottom_right_x = element.bottom_right_x
@@ -624,24 +653,31 @@ class EasyDoc:
 
             if action == 'merge_nearby' and direction == 'horizontal':
                 self.reset_region()
+                #print("h", self.h)
+                #print(element.words)
                 self.on_the_same_row(element=element, offset=(0.5*self.h, 0.5*self.h), relation='right', relation_offset=-w)
                 #self.set_region(element=element,relation='above',offset=average_line_space)
                 df_action = self.get_df_from_region().sort_values(by=['top_left_x'], ascending=[True])
+                #print(df_action)
 
             if len(df_action) > 0:
                 match = False
-                print(element.name)
+                #print(element.words)
                 for idx, element_df in df_action.iterrows():
                     new_height = (element_df.bottom_right_y - element_df.top_left_y) / element_df.lines
                     new_space = element_df.top_left_y - bottom_right_y
                     if element.name == element_df.name:
                         continue
                     if direction == 'horizontal':
+                        #rint(element_df.words)
                         gap = (element_df.top_left_x - self.ocr_result.loc[element.name].bottom_right_x)
+                        #print('gap',gap,'w', w)
                         if action == 'merge_nearby' and gap <= w:
+                            #print(self.table_v)
                             a = self.table_v[int(element_df.top_left_y):int(self.ocr_result.loc[i].bottom_right_y), int(self.ocr_result.loc[i].bottom_right_x -w):int(element_df.top_left_x+w)].nonzero()
 
                             if a[0].sum() == 0 and a[1].sum() == 0:
+                                #print('1')
 
                                 j = 3
                                 a = self.ocr_result.loc[i].bottom_right_x
@@ -653,19 +689,21 @@ class EasyDoc:
                                 df_filter = df[df.apply(lambda x: x['top_left_y'] > b and x['bottom_right_x'] >= c and x['bottom_right_y'] <= d, axis=1)]
 
                                 proceed = False
-                                print(gap, self.w)
-                                if gap < self.w:
+                                #print(gap, self.w)
+                                if gap < w:
                                     proceed = True
                                 else:
-                                    print(df_filter)
+                                    #print(df_filter)
                                     if len(df_filter) == 0:
                                         proceed = True
 
                                 if proceed:
+                                    #print('merge')
                                     self.update_df_after_merge(action=action, separator=separator, element=element, element_df=element_df, direction='horizontal')
                                     match = True
                                     break
                                 else:
+                                    #print('no merge')
                                     continue
                             else:
                                 continue
@@ -747,8 +785,8 @@ class EasyDoc:
 
         self.calculate_embeddings()
 
-        self.merge_texts(w=w, h=h, action='merge_overlap', direction='vertical')
-        self.merge_texts(w=w, h=h, action='merge_nearby', direction='vertical')
+        #self.merge_texts(w=w, h=h, action='merge_overlap', direction='vertical')
+        #self.merge_texts(w=w, h=h, action='merge_nearby', direction='vertical')
 
     # %% 最小包裹正矩形 ================================================================
     def boundingRect(self, image_path):
